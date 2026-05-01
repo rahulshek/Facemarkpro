@@ -72,6 +72,7 @@ function FacultyReports() {
     branch_options: [],
     semester_options: [],
     section_options: [],
+    combinations: [],
   });
   const [report, setReport] = useState({
     summary_rows: [],
@@ -105,6 +106,7 @@ function FacultyReports() {
           branch_options: data.branch_options || [],
           semester_options: data.semester_options || [],
           section_options: data.section_options || [],
+          combinations: data.combinations || [],
         });
       } else {
         setError(data.message || "Failed to load filter options.");
@@ -116,6 +118,49 @@ function FacultyReports() {
       setFiltersLoading(false);
     }
   }
+
+  // Dependent Filtering Logic
+  const filteredOptions = useMemo(() => {
+    const { combinations, branch_options, semester_options, section_options, subject_options } = options;
+    
+    // 1. Filter Semesters based on Branch
+    let availableSemesters = semester_options;
+    if (filters.branch) {
+      availableSemesters = Array.from(new Set(
+        combinations.filter(c => c.branch === filters.branch).map(c => c.semester)
+      )).sort((a, b) => Number(a) - Number(b));
+    }
+
+    // 2. Filter Sections based on Branch + Semester
+    let availableSections = section_options;
+    if (filters.branch || filters.semester) {
+      availableSections = Array.from(new Set(
+        combinations.filter(c => 
+          (!filters.branch || c.branch === filters.branch) &&
+          (!filters.semester || String(c.semester) === String(filters.semester))
+        ).map(c => c.section)
+      )).sort();
+    }
+
+    // 3. Filter Subjects based on Branch + Semester + Section
+    let availableSubjects = subject_options;
+    if (filters.branch || filters.semester || filters.section) {
+      availableSubjects = Array.from(new Set(
+        combinations.filter(c => 
+          (!filters.branch || c.branch === filters.branch) &&
+          (!filters.semester || String(c.semester) === String(filters.semester)) &&
+          (!filters.section || c.section === filters.section)
+        ).map(c => c.subject)
+      )).sort();
+    }
+
+    return {
+      branches: branch_options,
+      semesters: availableSemesters,
+      sections: availableSections,
+      subjects: availableSubjects,
+    };
+  }, [options, filters.branch, filters.semester, filters.section]);
 
   async function loadReport(nextFilters) {
     setLoading(true);
@@ -150,13 +195,21 @@ function FacultyReports() {
     return Number(report.totals?.total_present || 0) + Number(report.totals?.total_absent || 0);
   }, [report.totals]);
 
-  const onApplyFilters = () => {
-    loadReport(filters);
-  };
+  const onApplyFilters = () => loadReport(filters);
 
   const onExport = (format) => {
     const query = buildQuery({ ...filters, format });
     window.open(apiUrl(`/api/faculty/reports/export?${query}`), "_blank");
+  };
+
+  const resetDependentFilters = (level) => {
+    setFilters(prev => {
+      const next = { ...prev };
+      if (level <= 1) next.semester = "";
+      if (level <= 2) next.section = "";
+      if (level <= 3) next.subject = "";
+      return next;
+    });
   };
 
   return (
@@ -172,10 +225,35 @@ function FacultyReports() {
         {filtersLoading ? <FilterSkeleton fields={7} /> : <div className="report-filter-grid">
           <label className="field-label"><span>Start Date</span><input type="date" value={filters.start_date} onChange={(e) => setFilters((p) => ({ ...p, start_date: e.target.value }))} /></label>
           <label className="field-label"><span>End Date</span><input type="date" value={filters.end_date} onChange={(e) => setFilters((p) => ({ ...p, end_date: e.target.value }))} /></label>
-          <label className="field-label"><span>Subject</span><select value={filters.subject} onChange={(e) => setFilters((p) => ({ ...p, subject: e.target.value }))}><option value="">All subjects</option>{options.subject_options.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
-          <label className="field-label"><span>Branch</span><select value={filters.branch} onChange={(e) => setFilters((p) => ({ ...p, branch: e.target.value }))}><option value="">All branches</option>{options.branch_options.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
-          <label className="field-label"><span>Semester</span><select value={filters.semester} onChange={(e) => setFilters((p) => ({ ...p, semester: e.target.value }))}><option value="">All semesters</option>{options.semester_options.map((s) => <option key={String(s)} value={String(s)}>{s}</option>)}</select></label>
-          <label className="field-label"><span>Section</span><select value={filters.section} onChange={(e) => setFilters((p) => ({ ...p, section: e.target.value }))}><option value="">All sections</option>{options.section_options.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+          
+          <label className="field-label"><span>Branch</span>
+            <select value={filters.branch} onChange={(e) => { setFilters((p) => ({ ...p, branch: e.target.value })); resetDependentFilters(1); }}>
+              <option value="">All branches</option>
+              {filteredOptions.branches.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+
+          <label className="field-label"><span>Semester</span>
+            <select value={filters.semester} onChange={(e) => { setFilters((p) => ({ ...p, semester: e.target.value })); resetDependentFilters(2); }}>
+              <option value="">All semesters</option>
+              {filteredOptions.semesters.map((s) => <option key={String(s)} value={String(s)}>{s}</option>)}
+            </select>
+          </label>
+
+          <label className="field-label"><span>Section</span>
+            <select value={filters.section} onChange={(e) => { setFilters((p) => ({ ...p, section: e.target.value })); resetDependentFilters(3); }}>
+              <option value="">All sections</option>
+              {filteredOptions.sections.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+
+          <label className="field-label"><span>Subject</span>
+            <select value={filters.subject} onChange={(e) => setFilters((p) => ({ ...p, subject: e.target.value }))}>
+              <option value="">All subjects</option>
+              {filteredOptions.subjects.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+
           <label className="field-label"><span>Student (Roll No)</span><input type="text" placeholder="Optional" value={filters.student_roll} onChange={(e) => setFilters((p) => ({ ...p, student_roll: e.target.value }))} /></label>
         </div>}
         <div className="report-filter-toolbar">

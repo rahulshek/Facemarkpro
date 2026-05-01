@@ -612,25 +612,15 @@ function FacultyProfile() {
 
   const subjectOptions = useMemo(() => {
     const mergedSubjectMap = new Map();
+    
+    // Only use subjects that are explicitly assigned to the faculty
     for (const item of timetableOptions.subjects || []) {
       const key = String(item.value || item.subject_code || item.subject_name || "").trim();
       if (key) {
         mergedSubjectMap.set(key, item);
       }
     }
-    for (const slot of timetableSlots) {
-      const key = String(slot.subject_code || slot.subject || "").trim().toUpperCase();
-      if (!key || mergedSubjectMap.has(key)) continue;
-      mergedSubjectMap.set(key, {
-        branch: String(slot.branch || "").trim().toUpperCase(),
-        semester: String(slot.semester ?? "").trim(),
-        section: String(slot.section || "").trim().toUpperCase(),
-        subject_code: String(slot.subject_code || "").trim().toUpperCase(),
-        subject_name: String(slot.subject || "").trim(),
-        value: `${String(slot.subject_code || slot.subject || "").trim().toUpperCase()}|${String(slot.branch || "").trim().toUpperCase()}|${String(slot.semester ?? "").trim()}|${String(slot.section || "").trim().toUpperCase()}`,
-        label: `${String(slot.subject || "").trim()} (${String(slot.subject_code || "").trim().toUpperCase() || "NA"}) - ${String(slot.branch || "").trim().toUpperCase()} / ${String(slot.semester ?? "").trim()} / ${String(slot.section || "").trim().toUpperCase()}`,
-      });
-    }
+
     const allSubjects = Array.from(mergedSubjectMap.values()).sort((first, second) => {
       const branchDiff = String(first.branch || "").localeCompare(String(second.branch || ""));
       if (branchDiff !== 0) return branchDiff;
@@ -640,8 +630,9 @@ function FacultyProfile() {
       if (sectionDiff !== 0) return sectionDiff;
       return String(first.label || first.subject_name || "").localeCompare(String(second.label || second.subject_name || ""));
     });
+    
     return allSubjects;
-  }, [timetableOptions.subjects, timetableSlots]);
+  }, [timetableOptions.subjects]);
 
   const availableBranches = useMemo(() => {
     const branchSet = new Set((timetableOptions.branches || []).map((item) => String(item || "").trim().toUpperCase()).filter(Boolean));

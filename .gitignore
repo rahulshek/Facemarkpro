@@ -1,151 +1,29 @@
-# Environment
-.env
-.env.*
-!.env.example
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/*.pyc
+backend/flask_session/
+backend/scratch/
 
-# Python artifacts
-__pycache__/
-*.py[cod]
-*.so
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.coverage
-coverage.xml
-htmlcov/
-
-# Virtual environments
-venv/
-.venv/
-env/
-
-# Editors/OS
-.vscode/
-.idea/
-.DS_Store
-*.swp
-*.swo
-*~
-
-# Builds/locks
-dist/
-build/
-pip-wheel-metadata/
-
-# App temp/uploads
-tempCodeRunnerFile.py
-temp_uploads/
-dataset/
-encodings/
-split_encodings/
-attendance_logs/
-flask_session/
-
-# Logs
-*.log
-logs/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Sensitive files
-faculty_users.csv
-*.pickle
-
-# SSL certificates (for local HTTPS development)
-cert.pem
-key.pem
-*.crt
-*.key
-
-# OS specific
-Thumbs.db
-.DS_Store
-update.zip
-
-*.png
-*.jpg
-*.jpeg
-*.mp4
-*.mov
-app/static/uploads/
-app/__pycache__/.*
-*.pyc
-# =========================
-# 🔹 GENERAL
-# =========================
-.DS_Store
-Thumbs.db
-*.log
-*.tmp
-*.swp
-
-# =========================
-# 🔹 NODE / REACT (Frontend)
-# =========================
-node_modules/
+# Node
 frontend/node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+frontend/dist/
+frontend/.npm/
 
-# Build outputs
-dist/
-build/
-frontend/build/
-
-# Env files
+# Environment Variables (CRITICAL)
+backend/.env
+frontend/.env
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
 
-# =========================
-# 🔹 PYTHON (Backend)
-# =========================
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
+# Application Data & Media
+backend/dataset/
+backend/attendance_logs/
+backend/split_encodings/
+backend/app/static/uploads/
+backend/encodings/
 
-# Virtual environments
-venv/
-env/
-.venv/
-
-# Python build files
-*.egg-info/
-dist/
-build/
-
-# =========================
-# 🔹 DOCKER
-# =========================
-.dockerignore
-docker-compose.override.yml
-
-# =========================
-# 🔹 IDE / EDITOR
-# =========================
+# Editor & OS
 .vscode/
 .idea/
-*.iml
-
-# =========================
-# 🔹 OS / Misc
-# =========================
-*.pid
-*.seed
-*.out
-
-
-
-# =========================
-# 🔹 caveman
-# =========================
-.agents
+.DS_Store
 *.log
-skills-lock.json

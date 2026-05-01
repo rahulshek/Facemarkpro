@@ -160,32 +160,30 @@ def download_pickle_from_cloudinary(cloud_name, local_path):
 def get_pickle_from_cloudinary(cloud_name):
     """
     Fetch pickle data directly from Cloudinary into memory
-    
-    Args:
-        cloud_name: Public ID in Cloudinary
-    Returns:
-        The deserialized pickle object or None
     """
     try:
         if not init_cloudinary():
+            print("DEBUG: Cloudinary not initialized in get_pickle")
             return None
             
-        print(f"DEBUG: Fetching {cloud_name} from cloud to memory...")
+        print(f"DEBUG: Fetching {cloud_name} from cloud...")
         try:
             resource = cloudinary.api.resource(f"facemarkpro/encodings/{cloud_name}", resource_type="raw")
             url = resource.get('secure_url')
-        except Exception:
+        except Exception as e:
+            print(f"DEBUG: Cloudinary resource not found: {e}")
             return None
 
         if not url:
+            print("DEBUG: No secure_url found in Cloudinary resource")
             return None
 
         with urllib.request.urlopen(url, timeout=10) as response:
             if response.status == 200:
                 data = pickle.loads(response.read())
-                print(f"DEBUG: Successfully loaded {cloud_name} into memory")
+                print(f"DEBUG: Successfully loaded {cloud_name} from cloud")
                 return data
     except Exception as e:
-        logger.error(f"Error loading pickle from cloud to memory: {e}")
+        print(f"DEBUG: Error loading from Cloudinary: {e}")
         return None
     return None

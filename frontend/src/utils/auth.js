@@ -58,7 +58,7 @@ export function buildProfileFromUser(user, fallbackRole = "faculty") {
     avatar: toInitials(user.name, fallbackRole === "admin" ? "A" : "F"),
     name: user.name || (fallbackRole === "admin" ? "Admin" : "Faculty"),
     meta: user.email || user.roll_no || "",
-    photoPath: user.photo_path || "",
+    photoPath: user.photoPath || user.photo_path || "",
     role: user.role || fallbackRole,
   };
 }
@@ -67,12 +67,14 @@ export function persistAuth({ token, role, user }) {
   localStorage.setItem(AUTH_TOKEN_KEY, token || "session");
   localStorage.setItem(AUTH_ROLE_KEY, role);
   localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  window.dispatchEvent(new Event("authChange"));
 }
 
 export function clearAuth() {
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_ROLE_KEY);
   localStorage.removeItem(AUTH_USER_KEY);
+  window.dispatchEvent(new Event("authChange"));
 }
 
 export function useSessionProfile(fallbackRole = "faculty") {
@@ -92,15 +94,25 @@ export function useSessionProfile(fallbackRole = "faculty") {
         if (!response.ok || !payload.authenticated || !mounted) return;
 
         persistAuth({ token: "session", role: payload.role, user: payload.user || {} });
-        setProfile(buildProfileFromUser(payload.user || {}, fallbackRole));
+        // state will be updated by the event listener below
       } catch {
         // keep cached profile
       }
     }
 
     hydrate();
+
+    function handleAuthChange() {
+      if (mounted) {
+        setProfile(buildProfileFromUser(getStoredAuthUser(), fallbackRole));
+      }
+    }
+
+    window.addEventListener("authChange", handleAuthChange);
+
     return () => {
       mounted = false;
+      window.removeEventListener("authChange", handleAuthChange);
     };
   }, [fallbackRole]);
 

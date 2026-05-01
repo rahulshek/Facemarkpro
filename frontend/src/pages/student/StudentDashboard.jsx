@@ -69,13 +69,13 @@ function StudentDashboard() {
   const displayName = storedUser?.name || storedUser?.roll_no || "Student";
   const displayMeta = storedUser?.branch ? `${storedUser.branch} / ${storedUser.semester || "Semester"}` : "Student";
 
-  const effectiveRecentAttendance = dashboardData.recentAttendance.length > 0 ? dashboardData.recentAttendance : recentAttendance;
-  const effectiveTodayClasses = dashboardData.todayClasses.length > 0 ? dashboardData.todayClasses : todaysClasses;
-  const effectiveWeeklyTimetable = dashboardData.weeklyTimetable.length > 0 ? dashboardData.weeklyTimetable : weeklyTimetable;
-  const effectiveWeeklyHeaders = dashboardData.weeklyHeaders.length > 0 ? dashboardData.weeklyHeaders : DEFAULT_WEEKLY_HEADERS;
+  const effectiveRecentAttendance = (dashboardData.recentAttendance.length > 0 || !usingFallbackData) ? dashboardData.recentAttendance : recentAttendance;
+  const effectiveTodayClasses = (dashboardData.todayClasses.length > 0 || !usingFallbackData) ? dashboardData.todayClasses : todaysClasses;
+  const effectiveWeeklyTimetable = (dashboardData.weeklyTimetable.length > 0 || !usingFallbackData) ? dashboardData.weeklyTimetable : weeklyTimetable;
+  const effectiveWeeklyHeaders = (dashboardData.weeklyHeaders.length > 0 || !usingFallbackData) ? dashboardData.weeklyHeaders : DEFAULT_WEEKLY_HEADERS;
 
-  const derivedPresent = dashboardData.attendanceSummary.present || effectiveRecentAttendance.filter((row) => String(row.status).toLowerCase() === "present").length;
-  const derivedAbsent = dashboardData.attendanceSummary.absent || effectiveRecentAttendance.filter((row) => String(row.status).toLowerCase() === "absent").length;
+  const derivedPresent = dashboardData.attendanceSummary.present || (usingFallbackData ? effectiveRecentAttendance.filter((row) => String(row.status).toLowerCase() === "present").length : 0);
+  const derivedAbsent = dashboardData.attendanceSummary.absent || (usingFallbackData ? effectiveRecentAttendance.filter((row) => String(row.status).toLowerCase() === "absent").length : 0);
   const derivedTotal = dashboardData.attendanceSummary.total || (derivedPresent + derivedAbsent);
   const derivedPercentage = derivedTotal > 0 ? Math.round((derivedPresent / derivedTotal) * 100) : 0;
 

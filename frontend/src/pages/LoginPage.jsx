@@ -233,6 +233,7 @@ function LoginPage({ theme, setTheme, defaultRoute }) {
                   autoComplete="username"
                   required
                 />
+                <small className="lp-input-hint">Use your unique ID (e.g. 24CSE01)</small>
               </div>
               <div className="lp-form-group">
                 <input

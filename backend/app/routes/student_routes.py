@@ -18,6 +18,8 @@ from ..utils.cloudinary_utils import (
 from ..utils.api_contract import build_auth_response, wants_json_response
 import pandas as pd
 import bcrypt
+import re
+import datetime
 
 bp = Blueprint('students', __name__)
 
@@ -212,16 +214,23 @@ def student_dashboard():
 
 @bp.route('/api/student/dashboard', methods=['GET'])
 def student_dashboard_api():
+    logger = logging.getLogger(__name__)
     roll_no = _require_student_session()
+    logger.info(f"DEBUG: student_dashboard_api called for roll_no: {roll_no}")
+    
     if not roll_no:
+        logger.warning("DEBUG: No student roll_no in session")
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
 
     cols = get_collections()
     student = _get_student_doc(roll_no)
     if not student:
+        logger.warning(f"DEBUG: Student not found for roll_no: {roll_no}")
         return jsonify({'success': False, 'error': 'Student not found'}), 404
 
-    cache_key = f"student_dashboard:v2:{roll_no}:{student.get('branch','')}:{student.get('semester','')}:{student.get('section','')}"
+    logger.info(f"DEBUG: Found student: {student.get('name')} for roll_no: {roll_no}")
+
+    cache_key = f"student_dashboard:v3:{roll_no}:{student.get('branch','')}:{student.get('semester','')}:{student.get('section','')}"
     cached_payload = cache.get(cache_key)
     if cached_payload:
         return jsonify(cached_payload)
@@ -299,6 +308,7 @@ def student_dashboard_api():
     total = cols['attendance'].count_documents({"student.roll_no": roll_no})
     present = cols['attendance'].count_documents({"student.roll_no": roll_no, "student.status": "Present"})
     absent = max(total - present, 0)
+    logger.info(f"DEBUG: Attendance stats for {roll_no}: total={total}, present={present}, absent={absent}")
 
     # Build weekly timetable matrix (real data) for frontend table.
     default_headers = ['09:00', '10:00', '11:00', '12:00', '02:00']
@@ -355,6 +365,82 @@ def student_dashboard_api():
 
     cache.set(cache_key, payload, timeout=int(os.environ.get('DASHBOARD_CACHE_TTL', '60')))
     return jsonify(payload)
+
+
+@bp.route('/api/student/attendance', methods=['GET'])
+def student_attendance_api():
+    roll_no = _require_student_session()
+    if not roll_no:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    cols = get_collections()
+    detailed = []
+
+    # Build subject list from attendance docs
+    subjects = cols['attendance'].distinct('subject', {"student.roll_no": roll_no})
+    for subj in subjects:
+        if not subj:
+            continue
+        total = cols['attendance'].count_documents({"student.roll_no": roll_no, "subject": subj})
+        present = cols['attendance'].count_documents({"student.roll_no": roll_no, "subject": subj, "student.status": "Present"})
+        percentage = int(round((present / total) * 100)) if total > 0 else 0
+
+        # recent records for subject
+        records = []
+        for r in cols['attendance'].find({"student.roll_no": roll_no, "subject": subj}).sort("_id", -1).limit(20):
+            records.append({
+                'date': r.get('date', ''),
+                'status': r.get('student', {}).get('status', '')
+            })
+
+        # Calculate trend based on attendance percentage buckets
+        if percentage <= 60:
+            trend = "Critical"
+        elif percentage <= 75:
+            trend = "Watch"
+        elif percentage <= 90:
+            trend = "Good"
+        else:
+            trend = "Excellent"
+
+        detailed.append({
+            'subject': subj,
+            'attendance': f"{percentage}%",
+            'trend': trend,
+            'present_classes': present,
+            'total_classes': total,
+            'percentage': percentage,
+            'records': records
+        })
+
+    # Overall stats
+    total_all = sum(d['total_classes'] for d in detailed)
+    present_all = sum(d['present_classes'] for d in detailed)
+    overall_percentage = int(round((present_all / total_all) * 100)) if total_all > 0 else 0
+
+    best_subject_doc = max(detailed, key=lambda x: x['percentage'], default=None)
+    needs_focus_doc = min(detailed, key=lambda x: x['percentage'], default=None)
+
+    # Global recent list (all subjects mixed, sorted by date)
+    all_recent = []
+    global_recent_cursor = cols['attendance'].find({"student.roll_no": roll_no}).sort("_id", -1).limit(10)
+    for r in global_recent_cursor:
+        all_recent.append({
+            'date': r.get('date', ''),
+            'subject': r.get('subject', ''),
+            'status': r.get('student', {}).get('status', '')
+        })
+
+    return jsonify({
+        'success': True,
+        'detailedAttendance': detailed,
+        'overallStats': {
+            'semester': f"{overall_percentage}%",
+            'bestSubject': best_subject_doc['attendance'] if best_subject_doc else "0%",
+            'needsFocus': needs_focus_doc['attendance'] if needs_focus_doc else "0%"
+        },
+        'recentAttendance': all_recent
+    })
 def student_timetable():
     roll_no = _require_student_session()
     if not roll_no:
@@ -705,7 +791,7 @@ def register_student_face():
                 
                 # If face is already registered in another class
                 if existing_registration:
-                    error = f"Face already registered! This face belongs to {existing_registration['student_name']} ({existing_registration['student_roll']}) in class {existing_registration['class']}. Distance: {existing_registration['distance']:.3f}"
+                    error = f"Face already registered! This face belongs to {existing_registration['student_name']} ({existing_registration['student_roll']}) in class {existing_registration['class']}"
                 else:
                     # Proceed with registration in the selected class
                     # Load current data from cloud
@@ -722,6 +808,9 @@ def register_student_face():
                     
                     # Sync to Cloudinary from memory
                     upload_pickle_to_cloudinary_from_memory(data, f"{branch}_{semester}")
+                    
+                    # Update student database flag
+                    collections['students'].update_one({'roll_no': roll_no}, {'$set': {'face_registered': True}})
                     
                     message = f"Student {name} ({roll_no}) registered successfully!"
         # Refresh students list for the selected branch/semester

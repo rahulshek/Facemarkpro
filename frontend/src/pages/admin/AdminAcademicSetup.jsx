@@ -136,19 +136,33 @@ function AdminAcademicSetup() {
   const subjectOptions = useMemo(() => {
     const branch = String(form.branch || "").trim().toUpperCase();
     const semester = String(form.semester || "").trim();
-    const items = (setup.subjects || []).filter((item) => {
-      if (branch && String(item.branch || "").trim().toUpperCase() !== branch) return false;
-      if (semester && String(item.semester ?? "") !== semester) return false;
+
+    // If no branch or semester selected, show nothing in the assignment dropdown
+    if (!branch && !semester) return [];
+
+    return (setup.subjects || []).filter((item) => {
+      const itemBranch = String(item.branch || "").trim().toUpperCase();
+      const itemSem = String(item.semester ?? "").trim();
+
+      if (branch && itemBranch !== branch) return false;
+      if (semester && itemSem !== semester) return false;
       return true;
     });
-    return items.length ? items : (setup.subjects || []);
   }, [form.branch, form.semester, setup.subjects]);
 
   const facultyOptions = useMemo(() => setup.faculty_options || [], [setup.faculty_options]);
   const currentItems = setup[activeTab] || [];
 
   function openCreateModal() {
-    setForm({ ...EMPTY_FORMS[activeTab] });
+    const defaultBranch = branchOptions[0] || "";
+    const emptyForm = { ...EMPTY_FORMS[activeTab] };
+    if ((activeTab === "classes" || activeTab === "subjects" || activeTab === "assignments") && defaultBranch) {
+      emptyForm.branch = defaultBranch;
+      if (activeTab === "classes") {
+        emptyForm.label = defaultBranch;
+      }
+    }
+    setForm(emptyForm);
     setModalOpen(true);
     setError("");
     setActionMessage("");
@@ -329,13 +343,63 @@ function AdminAcademicSetup() {
               {activeTab === "classes" ? (
                 <>
                   <label className="admin-form-label">Branch</label>
-                  <select className="admin-form-input" value={form.branch || ""} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))} required>{branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select>
+                  <select
+                    className="admin-form-input"
+                    value={form.branch || ""}
+                    onChange={(event) => {
+                      const branch = event.target.value;
+                      setForm((current) => ({
+                        ...current,
+                        branch,
+                        label: `${branch}${current.semester ? " / " + current.semester : ""}${current.section ? " / " + current.section : ""}`,
+                      }));
+                    }}
+                    required
+                  >
+                    <option value="" disabled>Select branch</option>
+                    {branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+                  </select>
+
                   <label className="admin-form-label">Semester</label>
-                  <input className="admin-form-input" type="number" min="1" max="12" value={form.semester || ""} onChange={(event) => setForm((current) => ({ ...current, semester: event.target.value }))} required />
+                  <input
+                    className="admin-form-input"
+                    type="number"
+                    min="1"
+                    max="12"
+                    value={form.semester || ""}
+                    onChange={(event) => {
+                      const semester = event.target.value;
+                      setForm((current) => ({
+                        ...current,
+                        semester,
+                        label: `${current.branch || ""}${current.branch && semester ? " / " : ""}${semester}${current.section ? " / " + current.section : ""}`,
+                      }));
+                    }}
+                    required
+                  />
+
                   <label className="admin-form-label">Section</label>
-                  <input className="admin-form-input" value={form.section || ""} onChange={(event) => setForm((current) => ({ ...current, section: event.target.value.toUpperCase() }))} required />
+                  <input
+                    className="admin-form-input"
+                    value={form.section || ""}
+                    onChange={(event) => {
+                      const section = event.target.value.toUpperCase();
+                      setForm((current) => ({
+                        ...current,
+                        section,
+                        label: `${current.branch || ""}${current.branch && current.semester ? " / " : ""}${current.semester || ""}${(current.branch || current.semester) && section ? " / " : ""}${section}`,
+                      }));
+                    }}
+                    required
+                  />
+
                   <label className="admin-form-label">Label</label>
-                  <input className="admin-form-input" value={form.label || ""} onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))} placeholder="CSE / 5 / A" />
+                  <input
+                    className="admin-form-input"
+                    value={form.label || ""}
+                    onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))}
+                    placeholder="CSE / 5 / A"
+                  />
                 </>
               ) : null}
 
@@ -357,7 +421,10 @@ function AdminAcademicSetup() {
                   <label className="admin-form-label">Subject Name</label>
                   <input className="admin-form-input" value={form.name || ""} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
                   <label className="admin-form-label">Branch</label>
-                  <select className="admin-form-input" value={form.branch || ""} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))} required>{branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select>
+                  <select className="admin-form-input" value={form.branch || ""} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))} required>
+                    <option value="" disabled>Select branch</option>
+                    {branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+                  </select>
                   <label className="admin-form-label">Semester</label>
                   <input className="admin-form-input" type="number" min="1" max="12" value={form.semester || ""} onChange={(event) => setForm((current) => ({ ...current, semester: event.target.value }))} required />
                   <label className="admin-form-label">Type</label>
@@ -368,15 +435,34 @@ function AdminAcademicSetup() {
               {activeTab === "assignments" ? (
                 <>
                   <label className="admin-form-label">Faculty</label>
-                  <select className="admin-form-input" value={form.faculty_email || ""} onChange={(event) => setForm((current) => ({ ...current, faculty_email: event.target.value }))} required>{facultyOptions.map((item) => <option key={item.email} value={item.email}>{item.label}</option>)}</select>
+                  <select className="admin-form-input" value={form.faculty_email || ""} onChange={(event) => setForm((current) => ({ ...current, faculty_email: event.target.value }))} required>
+                    <option value="" disabled>Select faculty</option>
+                    {facultyOptions.map((item) => <option key={item.email} value={item.email}>{item.label}</option>)}
+                  </select>
+                  
                   <label className="admin-form-label">Branch</label>
-                  <select className="admin-form-input" value={form.branch || ""} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value, class_value: "", semester: "", section: "", subject_code: "" }))} required>{branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}</select>
+                  <select className="admin-form-input" value={form.branch || ""} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value, class_value: "", semester: "", section: "", subject_code: "" }))} required>
+                    <option value="" disabled>Select branch</option>
+                    {branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+                  </select>
+                  
                   <label className="admin-form-label">Class</label>
-                  <select className="admin-form-input" value={form.class_value || ""} onChange={(event) => { const selected = classOptions.find((item) => item.value === event.target.value); setForm((current) => ({ ...current, class_value: event.target.value, branch: selected?.branch || current.branch, semester: selected ? String(selected.semester) : "", section: selected?.section || "", subject_code: "" })); }} required>{classOptions.filter((item) => !form.branch || item.branch === form.branch).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  <select className="admin-form-input" value={form.class_value || ""} onChange={(event) => { const selected = classOptions.find((item) => item.value === event.target.value); setForm((current) => ({ ...current, class_value: event.target.value, branch: selected?.branch || current.branch, semester: selected ? String(selected.semester) : "", section: selected?.section || "", subject_code: "" })); }} required>
+                    <option value="" disabled>Select class</option>
+                    {classOptions.filter((item) => !form.branch || item.branch === form.branch).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  </select>
+                  
                   <label className="admin-form-label">Subject</label>
-                  <select className="admin-form-input" value={form.subject_code || ""} onChange={(event) => setForm((current) => ({ ...current, subject_code: event.target.value }))} required>{subjectOptions.map((item) => <option key={item.code} value={item.code}>{item.name} ({item.code})</option>)}</select>
+                  <select className="admin-form-input" value={form.subject_code || ""} onChange={(event) => setForm((current) => ({ ...current, subject_code: event.target.value }))} required>
+                    <option value="" disabled>Select subject</option>
+                    {subjectOptions.map((item) => <option key={item.code} value={item.code}>{item.name} ({item.code})</option>)}
+                  </select>
+                  
                   <label className="admin-form-label">Classroom</label>
-                  <select className="admin-form-input" value={form.classroom || ""} onChange={(event) => setForm((current) => ({ ...current, classroom: event.target.value }))}><option value="">Not assigned</option>{classroomOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+                  <select className="admin-form-input" value={form.classroom || ""} onChange={(event) => setForm((current) => ({ ...current, classroom: event.target.value }))}>
+                    <option value="">Not assigned</option>
+                    {classroomOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
                 </>
               ) : null}
 

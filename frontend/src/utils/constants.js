@@ -50,7 +50,6 @@ export const adminNav = [
   { label: "Students", to: "/admin/manage-students", icon: "graduation" },
   { label: "Face Reg.", to: "/admin/manage-faces", icon: "camera" },
   { label: "Reports", to: "/admin/reports", icon: "chart" },
-  { label: "Faculty Dashboard", to: "/faculty/dashboard", icon: "home" },
 ];
 
 export const facultyNav = [
@@ -58,6 +57,7 @@ export const facultyNav = [
   { label: "Attendance", to: "/faculty/attendance", icon: "calendar" },
   { label: "Manual Attendance", to: "/faculty/manual-attendance", icon: "edit" },
   { label: "Reports", to: "/faculty/reports", icon: "chart" },
+  { label: "Profile", to: "/faculty/profile", icon: "user" },
 ];
 
 export const studentNav = [

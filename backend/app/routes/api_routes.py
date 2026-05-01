@@ -318,59 +318,78 @@ def _collect_registered_rolls():
 
 
 def _get_faculty_filter_options(collections, faculty_email, faculty_name_lower):
-    query = {"$or": [{"faculty_email": faculty_email}, {"faculty_name": faculty_name_lower}]}
-    docs = list(collections['timetable'].find(query, {"_id": 0}))
+    faculty_email = str(faculty_email).strip().lower()
+    
+    # We strictly use faculty_assignments as the source of truth
+    query = {"faculty_email": faculty_email}
+    assignments = list(collections['faculty_assignments'].find(query))
 
-    subjects = sorted({doc.get("subject", "") for doc in docs if doc.get("subject")})
-
+    subject_set = set()
+    combo_set = set()
     class_set = set()
-    for doc in docs:
-        branch = doc.get("branch", "")
-        semester_val = doc.get("semester")
-        section = doc.get("section", "")
-        try:
-            semester_int = int(semester_val) if semester_val is not None else None
-        except Exception:
-            semester_int = semester_val
 
-        if branch and semester_int is not None and section:
-            class_set.add((branch, semester_int, section))
+    for doc in assignments:
+        b, s, sec, subj = doc.get("branch"), doc.get("semester"), doc.get("section"), doc.get("subject_name")
+        if b and s is not None and sec and subj:
+            try:
+                b_str, s_str, sec_str, subj_str = str(b).strip().upper(), str(s), str(sec).strip().upper(), str(subj).strip()
+                subject_set.add(subj_str)
+                combo_set.add((b_str, s_str, sec_str, subj_str))
+                class_set.add((b_str, int(s), sec_str))
+            except: pass
 
-    class_options = [
-        {"branch": b, "semester": s, "section": sec}
-        for (b, s, sec) in sorted(class_set, key=lambda x: (x[0], x[1], x[2]))
-    ]
+    subjects = sorted(list(subject_set))
+    class_options = [{"branch": b, "semester": s, "section": sec} for (b, s, sec) in sorted(class_set, key=lambda x: (x[0], x[1], x[2]))]
+    combinations = [{"branch": b, "semester": s, "section": sec, "subject": subj} for (b, s, sec, subj) in combo_set]
 
-    return subjects, class_options
+    return subjects, class_options, combinations
 
 
 def _get_admin_filter_options(collections):
-    timetable_docs = list(collections['timetable'].find({}, {"_id": 0}))
+    # 1. Collect Subjects from multiple sources
+    subject_set = set()
+    for doc in collections['timetable'].find({}, {"subject": 1}):
+        if doc.get("subject"): subject_set.add(str(doc["subject"]).strip())
+    for doc in collections['academic_subjects'].find({}, {"name": 1}):
+        if doc.get("name"): subject_set.add(str(doc["name"]).strip())
+    for subj in collections['attendance'].distinct('subject'):
+        if subj: subject_set.add(str(subj).strip())
+    subjects = sorted([s for s in subject_set if s])
 
-    subjects = sorted({doc.get("subject", "") for doc in timetable_docs if doc.get("subject")})
-
+    # 2. Collect Class Options
     class_set = set()
-    for doc in timetable_docs:
-        branch = doc.get("branch", "")
-        semester_val = doc.get("semester")
-        section = doc.get("section", "")
-        try:
-            semester_int = int(semester_val) if semester_val is not None else None
-        except Exception:
-            semester_int = semester_val
+    for doc in collections['timetable'].find({}, {"branch": 1, "semester": 1, "section": 1}):
+        b, s, sec = doc.get("branch"), doc.get("semester"), doc.get("section")
+        if b and s is not None and sec:
+            try: class_set.add((str(b).strip().upper(), int(s), str(sec).strip().upper()))
+            except: pass
+    for doc in collections['academic_classes'].find({}, {"branch": 1, "semester": 1, "section": 1}):
+        b, s, sec = doc.get("branch"), doc.get("semester"), doc.get("section")
+        if b and s is not None and sec:
+            try: class_set.add((str(b).strip().upper(), int(s), str(sec).strip().upper()))
+            except: pass
+    class_options = [{"branch": b, "semester": s, "section": sec} for (b, s, sec) in sorted(class_set, key=lambda x: (x[0], x[1], x[2]))]
 
-        if branch and semester_int is not None and section:
-            class_set.add((branch, semester_int, section))
-
-    class_options = [
-        {"branch": b, "semester": s, "section": sec}
-        for (b, s, sec) in sorted(class_set, key=lambda x: (x[0], x[1], x[2]))
-    ]
-
-    faculty_options = list(collections['faculty'].find({}, {"_id": 0, "name": 1, "email": 1}))
+    # 3. Collect Faculty Options
+    faculty_options = list(collections['faculty'].find({'role': {'$ne': 'super_admin'}}, {"_id": 0, "name": 1, "email": 1}))
     faculty_options.sort(key=lambda f: (f.get('name') or '').lower())
 
-    return subjects, class_options, faculty_options
+    # 4. Collect VALID COMBINATIONS for dependent filtering
+    # We strictly use faculty_assignments as the source of truth for relationships
+    combo_set = set()
+    
+    # From official assignments
+    for doc in collections['faculty_assignments'].find({}, {"faculty_email": 1, "branch": 1, "semester": 1, "section": 1, "subject_name": 1}):
+        f, b, s, sec, subj = doc.get("faculty_email"), doc.get("branch"), doc.get("semester"), doc.get("section"), doc.get("subject_name")
+        if f and b and s is not None and sec and subj:
+            combo_set.add((str(f).strip().lower(), str(b).strip().upper(), str(s), str(sec).strip().upper(), str(subj).strip()))
+
+    combinations = [
+        {"faculty_email": f, "branch": b, "semester": s, "section": sec, "subject": subj}
+        for (f, b, s, sec, subj) in combo_set
+    ]
+
+    return subjects, class_options, faculty_options, combinations
 
 
 def _build_subject_summary(
@@ -663,7 +682,7 @@ def faculty_login_api():
     session['faculty_name'] = user.get('name', 'Faculty')
     session['role'] = role
 
-    redirect_path = '/faculty/dashboard'
+    redirect_path = '/admin/dashboard' if role == 'super_admin' else '/faculty/dashboard'
     return jsonify(
         build_auth_response(
             user={
@@ -703,17 +722,69 @@ def student_login_api():
     session['student_name'] = user.get('name', 'Student')
     session['role'] = 'student'
 
+    # Prepare user object with all fields for frontend session
+    registered_rolls = _collect_registered_rolls()
+    
+    user_data = {
+        'roll_no': roll_no,
+        'name': user.get('name'),
+        'branch': user.get('branch'),
+        'semester': user.get('semester'),
+        'section': user.get('section'),
+        'email': user.get('email'),
+        'phone': user.get('phone'),
+        'address': user.get('address'),
+        'role': 'student',
+        'faceRegistered': roll_no in registered_rolls,
+        'photoPath': _resolve_photo_path(user.get('photo_path', ''))
+    }
+
     return jsonify(
         build_auth_response(
-            user={
-                'roll_no': roll_no,
-                'name': session['student_name'],
-                'role': 'student',
-            },
+            user=user_data,
             role='student',
             redirect_path='/student/dashboard',
         )
     )
+
+
+@bp.post('/auth/update-profile/student')
+@require_session_role({'student'})
+def student_update_profile_api():
+    """Update student's own profile contact info."""
+    try:
+        data = request.get_json(silent=True) or {}
+        email = str(data.get('email', '')).strip().lower()
+        phone = str(data.get('phone', '')).strip()
+        address = str(data.get('address', '')).strip()
+
+        collections = get_collections()
+        roll_no = session.get('student_roll_no')
+        if not roll_no:
+            return json_error('Session expired', status=401)
+
+        update_doc = {
+            'email': email,
+            'phone': phone,
+            'address': address,
+            'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
+        result = collections['students'].update_one({'roll_no': roll_no}, {'$set': update_doc})
+        if result.matched_count == 0:
+            return json_error('Student record not found', status=404)
+
+        return jsonify({
+            'success': True,
+            'message': 'Profile updated successfully',
+            'contact': {
+                'email': email,
+                'phone': phone,
+                'address': address
+            }
+        })
+    except Exception as e:
+        return json_error(f'Profile update error: {str(e)}', status=400)
 
 
 @bp.post('/auth/logout')
@@ -733,20 +804,77 @@ def whoami_api():
     user = dict(info.get('user') or {})
 
     if role == 'student' and user.get('roll_no'):
-        student = collections['students'].find_one({'roll_no': user.get('roll_no')}, {'_id': 0, 'branch': 1, 'semester': 1, 'section': 1, 'photo_path': 1})
+        student = collections['students'].find_one(
+            {'roll_no': user.get('roll_no')}, 
+            {'_id': 0, 'branch': 1, 'semester': 1, 'section': 1, 'email': 1, 'phone': 1, 'address': 1, 'photo_path': 1, 'face_registered': 1}
+        )
         if student:
             user['branch'] = student.get('branch')
             user['semester'] = student.get('semester')
             user['section'] = student.get('section')
-            user['photo_path'] = _resolve_photo_path(student.get('photo_path'))
-    elif user.get('email'):
-        faculty = collections['faculty'].find_one({'email': user.get('email')}, {'_id': 0, 'department': 1, 'photo_path': 1})
+            user['email'] = student.get('email')
+            user['phone'] = student.get('phone')
+            user['address'] = student.get('address')
+            
+            # Perform real-time face registration check
+            registered_rolls = _collect_registered_rolls()
+            user['faceRegistered'] = roll_no in registered_rolls
+            user['photoPath'] = _resolve_photo_path(student.get('photo_path'))
+    
+    elif role in ['teacher', 'super_admin'] and user.get('email'):
+        faculty = collections['faculty'].find_one(
+            {'email': user.get('email')}, 
+            {'_id': 0, 'department': 1, 'photo_path': 1}
+        )
         if faculty:
             user['department'] = faculty.get('department')
-            user['photo_path'] = _resolve_photo_path(faculty.get('photo_path'))
+            user['photoPath'] = _resolve_photo_path(faculty.get('photo_path'))
 
     info['user'] = user
     return jsonify({'success': True, **info})
+
+
+@bp.post('/auth/change-password')
+@require_session_role({'student', 'teacher', 'super_admin', 'faculty'})
+def change_password_api():
+    """Unified password change API for all roles."""
+    data = request.get_json(silent=True) or {}
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+    confirm_password = data.get('confirm_password')
+
+    if not current_password or not new_password or not confirm_password:
+        return json_error('All fields are required', status=400)
+
+    if new_password != confirm_password:
+        return json_error('New passwords do not match', status=400)
+
+    if len(new_password) < 6:
+        return json_error('Password must be at least 6 characters long', status=400)
+
+    role = session.get('role')
+    collections = get_collections()
+    
+    if role == 'student':
+        roll_no = session.get('student_roll_no')
+        user = collections['students'].find_one({'roll_no': roll_no})
+        coll = collections['students']
+    else:
+        email = session.get('faculty_email')
+        user = collections['faculty'].find_one({'email': email})
+        coll = collections['faculty']
+
+    if not user:
+        return json_error('User not found', status=404)
+
+    stored_hash = user.get('password')
+    if not isinstance(stored_hash, (bytes, bytearray)) or not bcrypt.checkpw(current_password.encode('utf-8'), stored_hash):
+        return json_error('Current password is incorrect', status=401)
+
+    new_hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
+    coll.update_one({'_id': user['_id']}, {'$set': {'password': new_hashed}})
+
+    return jsonify({'success': True, 'message': 'Password updated successfully'})
 
 
 @bp.get('/faculty/dashboard')
@@ -765,6 +893,7 @@ def faculty_dashboard_data_api():
         return json_error('Faculty not found', status=404)
 
     faculty_name = str(faculty_doc.get('name', 'Faculty')).strip().lower()
+    # 1. Fetch from Timetable
     raw_lectures = list(collections['timetable'].find(
         {
             '$or': [
@@ -773,18 +902,57 @@ def faculty_dashboard_data_api():
             ]
         },
         {
-            '_id': 0,
-            'day': 1,
-            'period_no': 1,
-            'start_time': 1,
-            'end_time': 1,
-            'subject': 1,
-            'classroom': 1,
-            'semester': 1,
-            'branch': 1,
-            'section': 1,
+            '_id': 0, 'day': 1, 'period_no': 1, 'start_time': 1, 'end_time': 1,
+            'subject': 1, 'classroom': 1, 'semester': 1, 'branch': 1, 'section': 1,
         }
     ))
+
+    # 2. Fetch from Faculty Assignments (Source of Truth)
+    assignments = list(collections['faculty_assignments'].find(
+        {'faculty_email': faculty_email},
+        {
+            '_id': 0, 'branch': 1, 'semester': 1, 'section': 1, 
+            'subject_name': 1, 'classroom_name': 1
+        }
+    ))
+
+    # Merge assignments into raw_lectures intelligently
+    # 1. Identify what is scheduled for TODAY to avoid double entries
+    now_day = datetime.now().strftime('%A')
+    today_combos = set()
+    for l in raw_lectures:
+        if str(l.get('day', '')).strip().lower() == now_day.lower():
+            key = (
+                str(l.get('branch', '')).strip().upper(),
+                str(l.get('semester', '')).strip(),
+                str(l.get('section', '')).strip().upper(),
+                str(l.get('subject', '')).strip()
+            )
+            today_combos.add(key)
+
+    # 2. Add assignments if they aren't already in today's timetable
+    seen_in_assignments = set()
+    for a in assignments:
+        key = (
+            str(a.get('branch', '')).strip().upper(),
+            str(a.get('semester', '')).strip(),
+            str(a.get('section', '')).strip().upper(),
+            str(a.get('subject_name', '')).strip()
+        )
+        # If not already in today's timetable and not already added as an assignment
+        if key not in today_combos and key not in seen_in_assignments:
+            raw_lectures.append({
+                'day': 'Any',
+                'period_no': 0,
+                'start_time': '00:00',
+                'end_time': '23:59',
+                'subject': a.get('subject_name'),
+                'classroom': a.get('classroom_name', 'TBA'),
+                'semester': a.get('semester'),
+                'branch': a.get('branch'),
+                'section': a.get('section'),
+            })
+            seen_in_assignments.add(key)
 
     lectures = []
     for doc in raw_lectures:
@@ -1731,7 +1899,7 @@ def faculty_report_filters_api():
     faculty_doc = collections['faculty'].find_one({'email': faculty_email}, {'_id': 0, 'name': 1})
     faculty_name_lower = str((faculty_doc or {}).get('name', '')).strip().lower()
 
-    subject_options, class_options = _get_faculty_filter_options(collections, faculty_email, faculty_name_lower)
+    subject_options, class_options, combinations = _get_faculty_filter_options(collections, faculty_email, faculty_name_lower)
     branch_options = sorted({c.get('branch') for c in class_options if c.get('branch')})
     semester_options = sorted({c.get('semester') for c in class_options if c.get('semester') is not None})
     section_options = sorted({c.get('section') for c in class_options if c.get('section')})
@@ -1743,6 +1911,7 @@ def faculty_report_filters_api():
         'branch_options': branch_options,
         'semester_options': semester_options,
         'section_options': section_options,
+        'combinations': combinations,
     }
 
     cache.set(cache_key, payload, timeout=int(os.environ.get('REPORT_CACHE_TTL', '120')))
@@ -1764,7 +1933,7 @@ def faculty_reports_api():
     collections = get_collections()
     faculty_doc = collections['faculty'].find_one({'email': faculty_email}, {'_id': 0, 'name': 1})
     faculty_name_lower = str((faculty_doc or {}).get('name', '')).strip().lower()
-    subject_options, _class_options = _get_faculty_filter_options(collections, faculty_email, faculty_name_lower)
+    subject_options, _class_options, _combinations = _get_faculty_filter_options(collections, faculty_email, faculty_name_lower)
 
     filters = _normalize_report_filters(request.args)
     if filters['subject'] and filters['subject'] not in subject_options:
@@ -1820,7 +1989,7 @@ def faculty_reports_export_api():
     collections = get_collections()
     faculty_doc = collections['faculty'].find_one({'email': faculty_email}, {'_id': 0, 'name': 1})
     faculty_name_lower = str((faculty_doc or {}).get('name', '')).strip().lower()
-    subject_options, _class_options = _get_faculty_filter_options(collections, faculty_email, faculty_name_lower)
+    subject_options, _class_options, _combinations = _get_faculty_filter_options(collections, faculty_email, faculty_name_lower)
 
     filters = _normalize_report_filters(request.args)
     if filters['subject'] and filters['subject'] not in subject_options:
@@ -1873,7 +2042,7 @@ def admin_report_filters_api():
         return jsonify(cached_payload)
 
     collections = get_collections()
-    subject_options, class_options, faculty_options = _get_admin_filter_options(collections)
+    subject_options, class_options, faculty_options, combinations = _get_admin_filter_options(collections)
     branch_options = sorted({c.get('branch') for c in class_options if c.get('branch')})
     semester_options = sorted({c.get('semester') for c in class_options if c.get('semester') is not None})
     section_options = sorted({c.get('section') for c in class_options if c.get('section')})
@@ -1886,6 +2055,7 @@ def admin_report_filters_api():
         'semester_options': semester_options,
         'section_options': section_options,
         'faculty_options': faculty_options,
+        'combinations': combinations,
     }
 
     cache.set(cache_key, payload, timeout=int(os.environ.get('REPORT_CACHE_TTL', '120')))
@@ -1994,7 +2164,7 @@ def admin_list_faculty():
     collections = get_collections()
     
     faculty_list = list(collections['faculty'].find(
-        {},
+        {'role': {'$ne': 'super_admin'}},
         {
             '_id': 1,
             'name': 1,
@@ -2092,6 +2262,11 @@ def admin_reregister_face(student_roll):
         preserve_class_files.append(preserve_class_file)
 
     removed_count = _remove_roll_from_face_stores(student_roll, preserve_class_ids=preserve_class_files)
+    
+    # If preserve_class_files is empty, it means we are performing a full deletion.
+    if not preserve_class_files:
+        collections = get_collections()
+        collections['students'].update_one({'roll_no': student_roll}, {'$set': {'face_registered': False}})
     return jsonify({
         'success': True,
         'message': 'Face data replaced successfully',
@@ -2154,6 +2329,10 @@ def admin_create_student():
     semester_raw = data.get('semester')
     section = str(data.get('section', '')).strip()
 
+    email = str(data.get('email', '')).strip().lower()
+    phone = str(data.get('phone', '')).strip()
+    address = str(data.get('address', '')).strip()
+
     if not name or not roll_no or not branch or semester_raw is None or not section:
         return json_error('Name, roll number, branch, semester and section are required', status=400)
 
@@ -2166,12 +2345,19 @@ def admin_create_student():
     if collections['students'].find_one({'roll_no': roll_no}):
         return json_error('Student with this roll number already exists', status=409)
 
+    default_password = '123456'
+    hashed_password = bcrypt.hashpw(default_password.encode('utf-8'), bcrypt.gensalt())
+
     doc = {
         'name': name,
         'roll_no': roll_no,
         'branch': branch,
         'semester': semester,
         'section': section,
+        'email': email,
+        'phone': phone,
+        'address': address,
+        'password': hashed_password,
         'role': 'student',
         'created_at': datetime.now().strftime('%Y-%m-%d'),
     }
@@ -2187,10 +2373,79 @@ def admin_create_student():
             'branch': branch,
             'semester': semester,
             'section': section,
-            'email': '',
+            'email': email,
+            'phone': phone,
+            'address': address,
             'photo_path': _resolve_photo_path(''),
         },
     })
+
+
+@bp.post('/admin/students/<student_id>')
+@require_session_role({'super_admin'})
+def admin_update_student(student_id):
+    """Update an existing student."""
+    try:
+        data = request.get_json(silent=True) or {}
+        name = str(data.get('name', '')).strip()
+        roll_no = str(data.get('roll_no', '')).strip()
+        branch = str(data.get('branch', '')).strip()
+        semester_raw = data.get('semester')
+        section = str(data.get('section', '')).strip()
+        email = str(data.get('email', '')).strip().lower()
+        phone = str(data.get('phone', '')).strip()
+        address = str(data.get('address', '')).strip()
+
+        if not name or not roll_no or not branch or semester_raw is None or not section:
+            return json_error('Name, roll number, branch, semester and section are required', status=400)
+
+        try:
+            semester = int(semester_raw)
+        except Exception:
+            return json_error('Semester must be a valid number', status=400)
+
+        collections = get_collections()
+        student_oid = ObjectId(student_id)
+        
+        # Check if roll_no is taken by another student
+        existing = collections['students'].find_one({'roll_no': roll_no, '_id': {'$ne': student_oid}})
+        if existing:
+            return json_error('Student with this roll number already exists', status=409)
+
+        update_doc = {
+            'name': name,
+            'roll_no': roll_no,
+            'branch': branch,
+            'semester': semester,
+            'section': section,
+            'email': email,
+            'phone': phone,
+            'address': address,
+            'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        
+        result = collections['students'].update_one({'_id': student_oid}, {'$set': update_doc})
+        
+        if result.matched_count == 0:
+            return json_error('Student not found', status=404)
+
+        return jsonify({
+            'success': True,
+            'message': 'Student updated successfully',
+            'student': {
+                '_id': student_id,
+                'name': name,
+                'roll_no': roll_no,
+                'branch': branch,
+                'semester': semester,
+                'section': section,
+                'email': email,
+                'phone': phone,
+                'address': address,
+            },
+        })
+    except Exception as e:
+        return json_error(f'Update error: {str(e)}', status=400)
 
 
 @bp.post('/admin/faculty/<faculty_id>/toggle-admin')
@@ -2237,6 +2492,33 @@ def admin_reset_faculty_password(faculty_id):
 
         collections['faculty'].update_one(
             {'_id': faculty_oid},
+            {'$set': {'password': hashed_password}}
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'Password reset to default 123456',
+        })
+    except Exception as e:
+        return json_error(f'Password reset error: {str(e)}', status=400)
+
+
+@bp.post('/admin/students/<student_id>/reset-password')
+@require_session_role({'super_admin'})
+def admin_reset_student_password(student_id):
+    """Reset student password to default value 123456."""
+    try:
+        collections = get_collections()
+        student_oid = ObjectId(student_id)
+        student_doc = collections['students'].find_one({'_id': student_oid}, {'_id': 1})
+        if not student_doc:
+            return json_error('Student not found', status=404)
+
+        default_password = '123456'
+        hashed_password = bcrypt.hashpw(default_password.encode('utf-8'), bcrypt.gensalt())
+
+        collections['students'].update_one(
+            {'_id': student_oid},
             {'$set': {'password': hashed_password}}
         )
 
@@ -2324,7 +2606,10 @@ def admin_academic_setup_api():
             'label': f"{str(doc.get('name', '')).strip()} ({str(doc.get('email', '')).strip().lower()})",
             'department': str(doc.get('department', '')).strip().upper(),
         }
-        for doc in collections['faculty'].find({}, {'_id': 0, 'name': 1, 'email': 1, 'department': 1}).sort([('name', 1)])
+        for doc in collections['faculty'].find(
+            {'role': {'$ne': 'super_admin'}}, 
+            {'_id': 0, 'name': 1, 'email': 1, 'department': 1}
+        ).sort([('name', 1)])
         if str(doc.get('email', '')).strip()
     ]
 
@@ -2481,6 +2766,10 @@ def admin_academic_setup_save_api(entity):
         saved = collection.find_one({'_id': insert_result.inserted_id})
         message = f"{ACADEMIC_SETUP_CONFIG[entity]['label']} created successfully"
 
+    # Invalidate caches
+    cache.delete('admin_report_filters')
+    cache.clear()
+
     return jsonify({
         'success': True,
         'message': message,
@@ -2505,6 +2794,10 @@ def admin_academic_setup_delete_api(entity, item_id):
     result = collection.delete_one({'_id': object_id})
     if result.deleted_count == 0:
         return json_error(f"{ACADEMIC_SETUP_CONFIG[entity]['label']} not found", status=404)
+
+    # Invalidate caches
+    cache.delete('admin_report_filters')
+    cache.clear()
 
     return jsonify({
         'success': True,

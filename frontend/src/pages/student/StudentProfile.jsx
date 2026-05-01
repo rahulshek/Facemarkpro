@@ -2,20 +2,76 @@ import React, { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   FaUser, FaEnvelope, FaPhone, FaMapPin, FaAward, FaBook, FaCamera,
-  FaGraduationCap, FaCalendarDays, FaPencil, FaCircleCheck, FaChartLine
+  FaGraduationCap, FaCalendarDays, FaPencil, FaCircleCheck, FaChartLine, FaXmark, FaCheck
 } from "react-icons/fa6";
 
-import { getStoredAuthUser, useSessionProfile } from "../../utils/auth";
+import { getStoredAuthUser, useSessionProfile, apiUrl } from "../../utils/auth";
 import { studentNav } from "../../utils/constants";
-import { PageShell, SectionCard, ProfileFields } from "../../components/Shared";
+import { PageShell, SectionCard } from "../../components/Shared";
 
 function StudentProfile() {
   const profile = useSessionProfile("student");
   const storedUser = getStoredAuthUser() || {};
-  const [isEditing, setIsEditing] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  
+  const [editForm, setEditForm] = useState({
+    email: "",
+    phone: "",
+    address: "",
+  });
+
+  useEffect(() => {
+    if (storedUser) {
+      setEditForm({
+        email: storedUser.email || "",
+        phone: storedUser.phone || "",
+        address: storedUser.address || "",
+      });
+    }
+  }, [storedUser?.roll_no]);
+
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const res = await fetch(apiUrl("/api/auth/update-profile/student"), {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify(editForm),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setMessage("Profile updated successfully!");
+        // Update local storage
+        const updatedUser = { ...storedUser, ...data.contact };
+        localStorage.setItem("facemark_auth_user", JSON.stringify(updatedUser));
+        setTimeout(() => {
+          setShowEditModal(false);
+          setMessage("");
+          window.location.reload(); // Refresh to show new data
+        }, 1500);
+      } else {
+        setError(data.message || "Failed to update profile");
+      }
+    } catch (err) {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const displayName = storedUser?.name || storedUser?.roll_no || "Student";
-  const displayMeta = storedUser?.roll_no || "Roll No Not Available";
 
   return (
     <PageShell
@@ -100,6 +156,11 @@ function StudentProfile() {
               <FaEnvelope />
               <span>Contact Information</span>
             </span>
+          }
+          actions={
+            <button className="btn-icon-text small" onClick={() => setShowEditModal(true)}>
+              <FaPencil /> Edit Contact
+            </button>
           }
           className="student-profile-card"
         >
@@ -196,8 +257,74 @@ function StudentProfile() {
           </div>
         </SectionCard>
       </div>
+
+      {/* Edit Profile Modal */}
+      {showEditModal && (
+        <div className="admin-modal-overlay" onClick={() => !loading && setShowEditModal(false)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>Edit Contact Information</h3>
+              <button className="admin-modal-close" onClick={() => setShowEditModal(false)}>
+                <FaXmark />
+              </button>
+            </div>
+            <form className="admin-form" onSubmit={handleUpdateProfile}>
+              {message && <div className="alert alert-success"><FaCheck /> {message}</div>}
+              {error && <div className="alert alert-danger">{error}</div>}
+
+              <div className="admin-form-group">
+                <label className="admin-form-label">Email Address</label>
+                <input
+                  type="email"
+                  className="admin-form-input"
+                  placeholder="Enter your email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                />
+              </div>
+
+              <div className="admin-form-group">
+                <label className="admin-form-label">Phone Number</label>
+                <input
+                  type="tel"
+                  className="admin-form-input"
+                  placeholder="Enter your phone number"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                />
+              </div>
+
+              <div className="admin-form-group">
+                <label className="admin-form-label">Residential Address</label>
+                <textarea
+                  className="admin-form-input"
+                  rows="3"
+                  placeholder="Enter your full address"
+                  value={editForm.address}
+                  onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                ></textarea>
+              </div>
+
+              <div className="admin-modal-footer">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setShowEditModal(false)}
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="primary-btn" disabled={loading}>
+                  {loading ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </PageShell>
   );
 }
 
 export default StudentProfile;
+

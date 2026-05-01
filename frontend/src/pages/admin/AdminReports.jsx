@@ -74,6 +74,7 @@ function AdminReports() {
     semester_options: [],
     section_options: [],
     faculty_options: [],
+    combinations: [], // Add combinations mapping
   });
   const [report, setReport] = useState({
     summary_rows: [],
@@ -108,6 +109,7 @@ function AdminReports() {
           semester_options: data.semester_options || [],
           section_options: data.section_options || [],
           faculty_options: data.faculty_options || [],
+          combinations: data.combinations || [],
         });
       } else {
         setError(data.message || "Failed to load filter options.");
@@ -119,6 +121,63 @@ function AdminReports() {
       setFiltersLoading(false);
     }
   }
+
+  // Dependent Filtering Logic
+  const filteredOptions = useMemo(() => {
+    const { combinations, faculty_options, branch_options, semester_options, section_options, subject_options } = options;
+    
+    // 1. Filter Branches based on Faculty
+    let availableBranches = branch_options;
+    if (filters.faculty_email) {
+      availableBranches = Array.from(new Set(
+        combinations.filter(c => c.faculty_email === filters.faculty_email).map(c => c.branch)
+      )).sort();
+    }
+
+    // 2. Filter Semesters based on Faculty + Branch
+    let availableSemesters = semester_options;
+    if (filters.faculty_email || filters.branch) {
+      availableSemesters = Array.from(new Set(
+        combinations.filter(c => 
+          (!filters.faculty_email || c.faculty_email === filters.faculty_email) &&
+          (!filters.branch || c.branch === filters.branch)
+        ).map(c => c.semester)
+      )).sort((a, b) => Number(a) - Number(b));
+    }
+
+    // 3. Filter Sections based on Faculty + Branch + Semester
+    let availableSections = section_options;
+    if (filters.faculty_email || filters.branch || filters.semester) {
+      availableSections = Array.from(new Set(
+        combinations.filter(c => 
+          (!filters.faculty_email || c.faculty_email === filters.faculty_email) &&
+          (!filters.branch || c.branch === filters.branch) &&
+          (!filters.semester || String(c.semester) === String(filters.semester))
+        ).map(c => c.section)
+      )).sort();
+    }
+
+    // 4. Filter Subjects based on Faculty + Branch + Semester + Section
+    let availableSubjects = subject_options;
+    if (filters.faculty_email || filters.branch || filters.semester || filters.section) {
+      availableSubjects = Array.from(new Set(
+        combinations.filter(c => 
+          (!filters.faculty_email || c.faculty_email === filters.faculty_email) &&
+          (!filters.branch || c.branch === filters.branch) &&
+          (!filters.semester || String(c.semester) === String(filters.semester)) &&
+          (!filters.section || c.section === filters.section)
+        ).map(c => c.subject)
+      )).sort();
+    }
+
+    return {
+      branches: availableBranches,
+      semesters: availableSemesters,
+      sections: availableSections,
+      subjects: availableSubjects,
+      faculties: faculty_options
+    };
+  }, [options, filters.faculty_email, filters.branch, filters.semester, filters.section]);
 
   async function loadReport(nextFilters) {
     setLoading(true);
@@ -160,6 +219,17 @@ function AdminReports() {
     window.open(apiUrl(`/api/admin/reports/export?${query}`), "_blank");
   };
 
+  const resetDependentFilters = (level) => {
+    setFilters(prev => {
+      const next = { ...prev };
+      if (level <= 1) next.branch = "";
+      if (level <= 2) next.semester = "";
+      if (level <= 3) next.section = "";
+      if (level <= 4) next.subject = "";
+      return next;
+    });
+  };
+
   return (
     <PageShell
       variant="admin"
@@ -173,11 +243,42 @@ function AdminReports() {
         {filtersLoading ? <FilterSkeleton fields={8} /> : <div className="report-filter-grid report-filter-grid-admin">
           <label className="field-label"><span>Start Date</span><input type="date" value={filters.start_date} onChange={(e) => setFilters((p) => ({ ...p, start_date: e.target.value }))} /></label>
           <label className="field-label"><span>End Date</span><input type="date" value={filters.end_date} onChange={(e) => setFilters((p) => ({ ...p, end_date: e.target.value }))} /></label>
-          <label className="field-label"><span>Subject</span><select value={filters.subject} onChange={(e) => setFilters((p) => ({ ...p, subject: e.target.value }))}><option value="">All subjects (combined)</option>{options.subject_options.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
-          <label className="field-label"><span>Faculty</span><select value={filters.faculty_email} onChange={(e) => setFilters((p) => ({ ...p, faculty_email: e.target.value }))}><option value="">All faculty</option>{options.faculty_options.map((f) => <option key={f.email} value={f.email}>{f.name} ({f.email})</option>)}</select></label>
-          <label className="field-label"><span>Branch</span><select value={filters.branch} onChange={(e) => setFilters((p) => ({ ...p, branch: e.target.value }))}><option value="">All branches</option>{options.branch_options.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
-          <label className="field-label"><span>Semester</span><select value={filters.semester} onChange={(e) => setFilters((p) => ({ ...p, semester: e.target.value }))}><option value="">All semesters</option>{options.semester_options.map((s) => <option key={String(s)} value={String(s)}>{s}</option>)}</select></label>
-          <label className="field-label"><span>Section</span><select value={filters.section} onChange={(e) => setFilters((p) => ({ ...p, section: e.target.value }))}><option value="">All sections</option>{options.section_options.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+          
+          <label className="field-label"><span>Faculty</span>
+            <select value={filters.faculty_email} onChange={(e) => { setFilters((p) => ({ ...p, faculty_email: e.target.value })); resetDependentFilters(1); }}>
+              <option value="">All faculty</option>
+              {filteredOptions.faculties.map((f) => <option key={f.email} value={f.email}>{f.name} ({f.email})</option>)}
+            </select>
+          </label>
+
+          <label className="field-label"><span>Branch</span>
+            <select value={filters.branch} onChange={(e) => { setFilters((p) => ({ ...p, branch: e.target.value })); resetDependentFilters(2); }}>
+              <option value="">All branches</option>
+              {filteredOptions.branches.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+
+          <label className="field-label"><span>Semester</span>
+            <select value={filters.semester} onChange={(e) => { setFilters((p) => ({ ...p, semester: e.target.value })); resetDependentFilters(3); }}>
+              <option value="">All semesters</option>
+              {filteredOptions.semesters.map((s) => <option key={String(s)} value={String(s)}>{s}</option>)}
+            </select>
+          </label>
+
+          <label className="field-label"><span>Section</span>
+            <select value={filters.section} onChange={(e) => { setFilters((p) => ({ ...p, section: e.target.value })); resetDependentFilters(4); }}>
+              <option value="">All sections</option>
+              {filteredOptions.sections.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+
+          <label className="field-label"><span>Subject</span>
+            <select value={filters.subject} onChange={(e) => setFilters((p) => ({ ...p, subject: e.target.value }))}>
+              <option value="">All subjects (combined)</option>
+              {filteredOptions.subjects.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+
           <label className="field-label"><span>Student (Roll No)</span><input type="text" placeholder="Optional" value={filters.student_roll} onChange={(e) => setFilters((p) => ({ ...p, student_roll: e.target.value }))} /></label>
         </div>}
         <div className="report-filter-toolbar">

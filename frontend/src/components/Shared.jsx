@@ -130,9 +130,11 @@ function PageShell({ variant, nav, title, subtitle, profile, actions, sidebarAct
     if (variant !== "faculty") return [];
 
     const items = [{ label: "Profile", to: "/faculty/profile" }];
-    items.push({ label: "Admin Dashboard", to: "/admin/dashboard" });
+    if (String(storedRole || "").toLowerCase() === "super_admin") {
+      items.push({ label: "Admin Dashboard", to: "/admin/dashboard" });
+    }
     return items;
-  }, [variant]);
+  }, [variant, storedRole]);
 
   useEffect(() => {
     setProfileMenuOpen(false);
@@ -222,6 +224,7 @@ function PageShell({ variant, nav, title, subtitle, profile, actions, sidebarAct
           </div>
         ) : null}
 
+
         <nav className="nav-links">
           {effectiveNav.map((item, index) => {
             const Icon = iconMap[item.icon];
@@ -251,7 +254,7 @@ function PageShell({ variant, nav, title, subtitle, profile, actions, sidebarAct
         </nav>
 
         <div className="sidebar-footer">
-          {variant === "faculty" ? (
+          {variant === "faculty" && String(storedRole || "").toLowerCase() === "super_admin" ? (
             <Link
               to="/admin/dashboard"
               className={`nav-link nav-link-dashboard${isNavItemActive("/admin/dashboard") ? " active" : ""}`}

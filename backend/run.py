@@ -23,15 +23,15 @@ if __name__ == "__main__":
         if os.path.exists(cert_file) and os.path.exists(key_file):
             ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ssl_context.load_cert_chain(cert_file, key_file)
-            print(f"✓ HTTPS enabled on https://0.0.0.0:{port}")
+            print(f"[OK] HTTPS enabled on https://0.0.0.0:{port}")
             print(f"  Access via: https://localhost:{port} or https://192.168.1.3:{port}")
             print("  Note: You may need to accept the self-signed certificate warning in your browser")
         else:
-            print("⚠ HTTPS enabled but certificate files not found!")
+            print("[WARN] HTTPS enabled but certificate files not found!")
             print(f"  Run: python generate_cert.py")
             print("  Falling back to HTTP...")
     else:
-        print(f"✓ HTTP mode on http://0.0.0.0:{port}")
+        print(f"[OK] HTTP mode on http://0.0.0.0:{port}")
         print(f"  Camera access only works on http://localhost:{port}")
         print("  To enable HTTPS for remote access, set USE_HTTPS=true in .env and run: python generate_cert.py")
     

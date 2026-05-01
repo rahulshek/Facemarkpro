@@ -14,23 +14,110 @@ import { PageShell, SectionCard, StatGrid, SimpleTable, ProfileFields, FormGrid 
 
 function StudentChangePassword() {
   const profile = useSessionProfile("student");
+  const [formData, setFormData] = useState({
+    current_password: "",
+    new_password: "",
+    confirm_password: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+    setError("");
+    setSuccess("");
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.current_password || !formData.new_password || !formData.confirm_password) {
+      setError("Please fill in all fields.");
+      return;
+    }
+    if (formData.new_password !== formData.confirm_password) {
+      setError("New passwords do not match.");
+      return;
+    }
+    if (formData.new_password.length < 6) {
+      setError("New password must be at least 6 characters.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(apiUrl("/api/auth/change-password"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify(formData),
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setSuccess(data.message || "Password updated successfully.");
+        setFormData({ current_password: "", new_password: "", confirm_password: "" });
+      } else {
+        setError(data.message || "Failed to update password.");
+      }
+    } catch (err) {
+      setError("Network error. Please try again later.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <PageShell
       variant="student"
       nav={studentNav}
       title="Change Password"
-      subtitle="Recreated as a clean card form inside the student shell."
+      subtitle="Keep your account secure with a strong password."
       profile={profile}
     >
       <SectionCard title="Security">
-        <FormGrid
-          fields={[
-            { label: "Current Password", type: "password" },
-            { label: "New Password", type: "password" },
-            { label: "Confirm Password", type: "password" },
-          ]}
-          action="Update Password"
-        />
+        <form className="settings-form" onSubmit={handleSubmit}>
+          {error && <p className="error-copy">{error}</p>}
+          {success && <p className="success-copy">{success}</p>}
+          
+          <div className="field-grid">
+            <label className="field-label">
+              <span>Current Password</span>
+              <input
+                type="password"
+                name="current_password"
+                value={formData.current_password}
+                onChange={handleChange}
+                placeholder="Enter current password"
+              />
+            </label>
+            <label className="field-label">
+              <span>New Password</span>
+              <input
+                type="password"
+                name="new_password"
+                value={formData.new_password}
+                onChange={handleChange}
+                placeholder="Minimum 6 characters"
+              />
+            </label>
+            <label className="field-label">
+              <span>Confirm New Password</span>
+              <input
+                type="password"
+                name="confirm_password"
+                value={formData.confirm_password}
+                onChange={handleChange}
+                placeholder="Repeat new password"
+              />
+            </label>
+          </div>
+          
+          <button className="primary-btn" type="submit" disabled={loading}>
+            {loading ? "Updating..." : "Update Password"}
+          </button>
+        </form>
       </SectionCard>
     </PageShell>
   );

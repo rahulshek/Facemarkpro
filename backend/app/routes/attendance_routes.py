@@ -241,11 +241,24 @@ def attendance_upload():
         video.save(video_path)
         logger.info(f"Video saved to {video_path}")
         
-        # Load encodings from Cloudinary
+        # 1. Try Cloudinary first
         data = get_pickle_from_cloudinary(class_id)
+        
+        # 2. Local Fallback
+        if not data:
+            split_dir = current_app.config.get('SPLIT_DIR', 'split_encodings')
+            local_path = os.path.join(split_dir, f"{class_id}.pickle")
+            if os.path.exists(local_path):
+                try:
+                    with open(local_path, 'rb') as f:
+                        data = pickle.load(f)
+                    logger.info(f"✓ Loaded {class_id} from local storage")
+                except Exception as e:
+                    logger.error(f"Error loading local pickle: {e}")
+
         if not data:
             logger.error(f"Encoding data not found for class: {class_id}")
-            flash('Encoding file not found for this class.', 'error')
+            flash('Encoding file not found (Cloud or Local).', 'error')
             os.remove(video_path)
             return redirect(url_for('attendance.attendance'))
         
@@ -565,10 +578,23 @@ def attendance_live_frame():
     if not class_id or not img_data:
         return jsonify({'error': 'Missing data'}), 400
     
-    # Load encodings from Cloudinary
+    # 1. Try Cloudinary first
     data = get_pickle_from_cloudinary(class_id)
+    
+    # 2. Local Fallback if Cloudinary fails or is not configured
     if not data:
-        return jsonify({'error': 'Encoding data not found on cloud'}), 404
+        split_dir = current_app.config.get('SPLIT_DIR', 'split_encodings')
+        local_path = os.path.join(split_dir, f"{class_id}.pickle")
+        if os.path.exists(local_path):
+            try:
+                with open(local_path, 'rb') as f:
+                    data = pickle.load(f)
+                logger.info(f"✓ Loaded {class_id} from local storage")
+            except Exception as e:
+                logger.error(f"Error loading local pickle: {e}")
+    
+    if not data:
+        return jsonify({'error': 'Encoding data not found (Cloud or Local)'}), 404
         
     try:
         known_encodings = np.array(data['encodings'])

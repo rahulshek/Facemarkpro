@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  FaPlus, FaEye, FaPencil, FaTrash, FaCamera
+import { 
+  FaUser, FaEnvelope, FaPhone, FaMapPin, FaAward, FaBook, FaCamera,
+  FaGraduationCap, FaCalendarDays, FaPencil, FaCircleCheck, FaChartLine, FaEye, FaTrash, FaPlus, FaKey
 } from "react-icons/fa6";
 import { apiUrl, useSessionProfile } from "../../utils/auth";
 import { adminNav } from "../../utils/constants";
@@ -63,16 +64,59 @@ function AdminManageStudents() {
   const [addForm, setAddForm] = useState({
     name: "",
     roll_no: "",
-    branch: "CSE",
+    branch: "",
     semester: "1",
     section: "A",
+    email: "",
+    phone: "",
+    address: "",
   });
+  const [branches, setBranches] = useState([]);
   const [openFaceRegistrationAfterAdd, setOpenFaceRegistrationAfterAdd] = useState(false);
+
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editForm, setEditForm] = useState({
+    id: "",
+    name: "",
+    roll_no: "",
+    branch: "",
+    semester: "1",
+    section: "A",
+    email: "",
+    phone: "",
+    address: "",
+  });
   const itemsPerPage = 10;
 
   useEffect(() => {
     loadStudents();
+    loadBranches();
   }, []);
+
+  async function loadBranches() {
+    try {
+      const res = await fetch(apiUrl("/api/admin/academic-setup"), {
+        method: "GET",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success && Array.isArray(data.branches)) {
+        const branchList = data.branches.map(b => ({
+          code: b.code,
+          name: b.name
+        }));
+        setBranches(branchList);
+        if (branchList.length > 0) {
+          setAddForm(prev => ({ ...prev, branch: branchList[0].code }));
+        }
+      }
+    } catch (err) {
+      console.error("Branches load error:", err);
+    }
+  }
 
   async function loadStudents() {
     setLoading(true);
@@ -97,6 +141,63 @@ function AdminManageStudents() {
       setLoading(false);
     }
   }
+
+  // Automation: Update email based on name
+  useEffect(() => {
+    if (showAddModal) {
+      const emailName = addForm.name.toLowerCase().replace(/\s+/g, "");
+      if (emailName) {
+        setAddForm(prev => ({
+          ...prev,
+          email: `${emailName}@facemarkpro.com`
+        }));
+      } else {
+        setAddForm(prev => ({ ...prev, email: "" }));
+      }
+    }
+  }, [addForm.name, showAddModal]);
+
+  // Automation: Update roll number based on branch and existing students
+  useEffect(() => {
+    if (showAddModal && addForm.branch) {
+      const yearShort = new Date().getFullYear().toString().slice(-2);
+      const branchCode = addForm.branch.toUpperCase();
+      
+      // Find students in this branch to determine next sequence
+      const branchStudents = students.filter(s => 
+        (s.branch || "").toUpperCase() === branchCode
+      );
+      
+      let nextSeq = 1;
+      if (branchStudents.length > 0) {
+        const sequences = branchStudents.map(s => {
+          // Extract the numeric part at the end of roll_no (e.g., 24CSE01 -> 01)
+          const match = (s.roll_no || "").match(/\d+$/);
+          return match ? parseInt(match[0], 10) : 0;
+        });
+        nextSeq = Math.max(...sequences, 0) + 1;
+      }
+      
+      const seqStr = String(nextSeq).padStart(2, '0');
+      setAddForm(prev => ({
+        ...prev,
+        roll_no: `${yearShort}${branchCode}${seqStr}`
+      }));
+    }
+  }, [addForm.branch, students, showAddModal]);
+
+  // Update email for Edit modal too? (Optional, but usually name doesn't change much)
+  useEffect(() => {
+    if (showEditModal) {
+      const emailName = editForm.name.toLowerCase().replace(/\s+/g, "");
+      if (emailName && !editForm.email) { // Only auto-fill if email is empty
+        setEditForm(prev => ({
+          ...prev,
+          email: `${emailName}@facemarkpro.com`
+        }));
+      }
+    }
+  }, [editForm.name, showEditModal]);
 
   const filteredStudents = useMemo(() => {
     return students.filter((s) =>
@@ -171,6 +272,9 @@ function AdminManageStudents() {
           branch: addForm.branch,
           semester: Number(addForm.semester),
           section: addForm.section,
+          email: addForm.email.trim(),
+          phone: addForm.phone.trim(),
+          address: addForm.address.trim(),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -201,6 +305,88 @@ function AdminManageStudents() {
       setError("Network error while adding student.");
     } finally {
       setAddLoading(false);
+    }
+  };
+
+  const handleOpenEdit = (student) => {
+    setEditForm({
+      id: student._id,
+      name: student.name || "",
+      roll_no: student.roll_no || "",
+      branch: student.branch || "",
+      semester: String(student.semester || "1"),
+      section: student.section || "A",
+      email: student.email || "",
+      phone: student.phone || "",
+      address: student.address || "",
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditStudent = async (e) => {
+    e.preventDefault();
+    setError("");
+    setActionMessage("");
+
+    try {
+      setEditLoading(true);
+      const res = await fetch(apiUrl(`/api/admin/students/${editForm.id}`), {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          roll_no: editForm.roll_no.trim(),
+          branch: editForm.branch,
+          semester: Number(editForm.semester),
+          section: editForm.section,
+          email: editForm.email.trim(),
+          phone: editForm.phone.trim(),
+          address: editForm.address.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.success) {
+        setStudents((prev) =>
+          prev.map((s) => (s._id === editForm.id ? { ...s, ...data.student } : s))
+        );
+        setShowEditModal(false);
+        setActionMessage("Student updated successfully.");
+      } else {
+        setError(data.message || "Failed to update student.");
+      }
+    } catch (err) {
+      console.error("Edit student error:", err);
+      setError("Network error while updating student.");
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (studentId) => {
+    if (!window.confirm("Reset student password to default 123456?")) return;
+    
+    setError("");
+    setActionMessage("");
+    try {
+      const res = await fetch(apiUrl(`/api/admin/students/${studentId}/reset-password`), {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setActionMessage("Password reset to 123456 successfully.");
+      } else {
+        setError(data.message || "Failed to reset password.");
+      }
+    } catch (err) {
+      console.error("Reset password error:", err);
+      setError("Network error while resetting password.");
     }
   };
 
@@ -272,10 +458,18 @@ function AdminManageStudents() {
                         </span>
                       </td>
                       <td className="action-cell">
-                        <button className="action-btn view-btn" title="View">
+                        <button
+                          className="action-btn view-btn"
+                          title="View"
+                          onClick={() => setSelectedStudent(s)}
+                        >
                           <FaEye />
                         </button>
-                        <button className="action-btn edit-btn" title="Edit">
+                        <button
+                          className="action-btn edit-btn"
+                          title="Edit"
+                          onClick={() => handleOpenEdit(s)}
+                        >
                           <FaPencil />
                         </button>
                         <button
@@ -289,6 +483,13 @@ function AdminManageStudents() {
                           }}
                         >
                           <FaCamera /> {s.face_registered ? "Re-register Face" : "Add Face"}
+                        </button>
+                        <button
+                          className="action-btn key-btn"
+                          title="Reset Password to 123456"
+                          onClick={() => handleResetPassword(s._id)}
+                        >
+                          <FaKey />
                         </button>
                         <button
                           className="action-btn delete-btn"
@@ -364,23 +565,30 @@ function AdminManageStudents() {
               </button>
             </div>
             <form className="admin-form" onSubmit={handleAddStudent}>
-              <label className="admin-form-label">Full Name</label>
-              <input
-                className="admin-form-input"
-                type="text"
-                value={addForm.name}
-                onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))}
-                required
-              />
-
-              <label className="admin-form-label">Roll Number</label>
-              <input
-                className="admin-form-input"
-                type="text"
-                value={addForm.roll_no}
-                onChange={(e) => setAddForm((prev) => ({ ...prev, roll_no: e.target.value }))}
-                required
-              />
+              <div className="admin-form-grid">
+                <div>
+                  <label className="admin-form-label">Full Name</label>
+                  <input
+                    className="admin-form-input"
+                    type="text"
+                    placeholder="Enter student name"
+                    value={addForm.name}
+                    onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="admin-form-label">Roll Number</label>
+                  <input
+                    className="admin-form-input"
+                    type="text"
+                    placeholder="e.g. 24CSE01"
+                    value={addForm.roll_no}
+                    onChange={(e) => setAddForm((prev) => ({ ...prev, roll_no: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
 
               <div className="admin-form-grid-three">
                 <div>
@@ -389,12 +597,14 @@ function AdminManageStudents() {
                     className="admin-form-input"
                     value={addForm.branch}
                     onChange={(e) => setAddForm((prev) => ({ ...prev, branch: e.target.value }))}
+                    required
                   >
-                    <option value="CSE">CSE (Computer Science)</option>
-                    <option value="IT">IT</option>
-                    <option value="ECE">ECE</option>
-                    <option value="ME">ME</option>
-                    <option value="CE">CE</option>
+                    <option value="">Select Branch</option>
+                    {branches.map((b) => (
+                      <option key={b.code} value={b.code}>
+                        {b.code}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -431,17 +641,208 @@ function AdminManageStudents() {
                 </div>
               </div>
 
-              <label className="admin-inline-check">
+              <div className="admin-form-divider">Contact Information (Optional)</div>
+
+              <div className="admin-form-grid">
+                <div>
+                  <label className="admin-form-label">Email Address</label>
+                  <input
+                    className="admin-form-input"
+                    type="email"
+                    placeholder="student@example.com"
+                    value={addForm.email}
+                    onChange={(e) => setAddForm((prev) => ({ ...prev, email: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="admin-form-label">Phone Number</label>
+                  <input
+                    className="admin-form-input"
+                    type="tel"
+                    placeholder="Enter phone number"
+                    value={addForm.phone}
+                    onChange={(e) => setAddForm((prev) => ({ ...prev, phone: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <label className="admin-form-label">Address</label>
+              <textarea
+                className="admin-form-input"
+                rows="2"
+                placeholder="Enter student's residential address"
+                value={addForm.address}
+                onChange={(e) => setAddForm((prev) => ({ ...prev, address: e.target.value }))}
+              ></textarea>
+
+              <div className="face-reg-checkbox">
                 <input
                   type="checkbox"
+                  id="openFaceRegistrationAfterAdd"
                   checked={openFaceRegistrationAfterAdd}
                   onChange={(e) => setOpenFaceRegistrationAfterAdd(e.target.checked)}
                 />
-                <span>Add face data now after creating this student</span>
-              </label>
+                <label htmlFor="openFaceRegistrationAfterAdd">
+                  Register Face after creating student
+                </label>
+              </div>
 
-              <button className="primary-btn admin-form-submit student-submit-btn" type="submit" disabled={addLoading}>
-                {addLoading ? "Adding..." : "Add Student"}
+              <button className="primary-btn admin-form-submit" type="submit" disabled={addLoading}>
+                {addLoading ? "Creating..." : "Create Student"}
+              </button>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {selectedStudent ? (
+        <div className="admin-modal-overlay" onClick={() => setSelectedStudent(null)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>Student Information</h3>
+              <button className="admin-modal-close" onClick={() => setSelectedStudent(null)}>x</button>
+            </div>
+            <div className="admin-modal-body">
+              <div className="admin-info-row"><strong>Name:</strong> {selectedStudent.name || "—"}</div>
+              <div className="admin-info-row"><strong>Roll Number:</strong> {selectedStudent.roll_no || "—"}</div>
+              <div className="admin-info-row"><strong>Branch:</strong> {selectedStudent.branch || "—"}</div>
+              <div className="admin-info-row"><strong>Semester:</strong> {selectedStudent.semester || "—"}</div>
+              <div className="admin-info-row"><strong>Section:</strong> {selectedStudent.section || "—"}</div>
+              <div className="admin-info-row"><strong>Email:</strong> {selectedStudent.email || "Not Provided"}</div>
+              <div className="admin-info-row"><strong>Phone:</strong> {selectedStudent.phone || "Not Provided"}</div>
+              <div className="admin-info-row"><strong>Address:</strong> {selectedStudent.address || "Not Provided"}</div>
+              <div className="admin-info-row"><strong>Face Status:</strong> {selectedStudent.face_registered ? "Registered" : "Not Registered"}</div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showEditModal ? (
+        <div className="admin-modal-overlay" onClick={() => !editLoading && setShowEditModal(false)}>
+          <div className="admin-modal admin-form-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>Edit Student</h3>
+              <button
+                className="admin-modal-close"
+                onClick={() => setShowEditModal(false)}
+                disabled={editLoading}
+              >
+                x
+              </button>
+            </div>
+            <form className="admin-form" onSubmit={handleEditStudent}>
+              <div className="admin-form-grid">
+                <div>
+                  <label className="admin-form-label">Full Name</label>
+                  <input
+                    className="admin-form-input"
+                    type="text"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="admin-form-label">Roll Number</label>
+                  <input
+                    className="admin-form-input"
+                    type="text"
+                    value={editForm.roll_no}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, roll_no: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="admin-form-grid-three">
+                <div>
+                  <label className="admin-form-label">Branch</label>
+                  <select
+                    className="admin-form-input"
+                    value={editForm.branch}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, branch: e.target.value }))}
+                  >
+                    {branches.length === 0 ? (
+                      <option value="">No branches created</option>
+                    ) : (
+                      branches.map((b) => (
+                        <option key={b.code} value={b.code}>
+                          {b.code}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+                <div>
+                  <label className="admin-form-label">Semester</label>
+                  <select
+                    className="admin-form-input"
+                    value={editForm.semester}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, semester: e.target.value }))}
+                  >
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                    <option value="7">7</option>
+                    <option value="8">8</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="admin-form-label">Section</label>
+                  <select
+                    className="admin-form-input"
+                    value={editForm.section}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, section: e.target.value }))}
+                  >
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                    <option value="C">C</option>
+                    <option value="D">D</option>
+                    <option value="E">E</option>
+                    <option value="F">F</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="admin-form-divider">Contact Details</div>
+              
+              <div className="admin-form-grid">
+                <div>
+                  <label className="admin-form-label">Email Address</label>
+                  <input
+                    className="admin-form-input"
+                    type="email"
+                    placeholder="student@example.com"
+                    value={editForm.email}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="admin-form-label">Phone Number</label>
+                  <input
+                    className="admin-form-input"
+                    type="tel"
+                    placeholder="9876543210"
+                    value={editForm.phone}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, phone: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <label className="admin-form-label">Residential Address</label>
+              <textarea
+                className="admin-form-input"
+                rows="2"
+                placeholder="Street, City, State, Pincode"
+                value={editForm.address}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, address: e.target.value }))}
+              ></textarea>
+
+              <button className="primary-btn admin-form-submit student-submit-btn" type="submit" disabled={editLoading}>
+                {editLoading ? "Updating..." : "Save Changes"}
               </button>
             </form>
           </div>

@@ -43,7 +43,7 @@ function ManualAttendance() {
 
         const nowDay = new Date().toLocaleDateString("en-US", { weekday: "long" });
         const rows = (payload.lectures || [])
-          .filter((lecture) => lecture.day === nowDay)
+          .filter((lecture) => lecture.day === nowDay || lecture.day === "Any")
           .map((lecture, index) => ({
             key: `${lecture.branch}-${lecture.semester}-${lecture.section}-${lecture.subject}-${lecture.start_time}-${index}`,
             subject: lecture.subject || "Subject",

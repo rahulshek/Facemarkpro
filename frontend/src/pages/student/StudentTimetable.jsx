@@ -10,16 +10,54 @@ import {
 import { apiUrl, getDashboardPath, getStoredAuthRole, getStoredAuthUser, hasAuthToken, persistAuth, useSessionProfile, isFacultyRole } from "../../utils/auth";
 import { adminNav, facultyNav, studentNav, studentStats, adminStats, facultyStats, todaysClasses, recentAttendance, facultyStudents, weeklyTimetable, FACULTY_DASHBOARD_KEY, FACULTY_GRID_COLS, defaultFacultyWidgets, facultyWidgetCatalog, FACULTY_KEY, STUDENT_KEY, SIDEBAR_LOGO_URL } from "../../utils/constants";
 import { normalizeFacultyLayout, getWidgetSizeClass } from "../../utils/constants";
-import { PageShell, SectionCard, StatGrid, SimpleTable, ProfileFields, FormGrid } from "../../components/Shared";
+import { PageShell, SectionCard, StatGrid, SimpleTable, ProfileFields, FormGrid, DashboardSkeleton } from "../../components/Shared";
+
+const DEFAULT_WEEKLY_HEADERS = ["09:00", "10:00", "11:00", "12:00", "02:00"];
 
 function StudentTimetable() {
   const profile = useSessionProfile("student");
+  const [loading, setLoading] = useState(true);
+  const [timetable, setTimetable] = useState([]);
+  const [headers, setHeaders] = useState(DEFAULT_WEEKLY_HEADERS);
+
+  useEffect(() => {
+    async function fetchTimetable() {
+      try {
+        setLoading(true);
+        const res = await fetch(apiUrl("/api/student/dashboard"), {
+          method: "GET",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success) {
+            setTimetable(json.weeklyTimetable || []);
+            setHeaders(json.weeklyHeaders || DEFAULT_WEEKLY_HEADERS);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch timetable:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchTimetable();
+  }, []);
+
+  if (loading) {
+    return <DashboardSkeleton variant="student" />;
+  }
+
+  const effectiveTimetable = timetable.length > 0 ? timetable : weeklyTimetable;
+  const effectiveHeaders = headers.length > 0 ? headers : DEFAULT_WEEKLY_HEADERS;
+
   return (
     <PageShell
       variant="student"
       nav={studentNav}
       title="Student Timetable"
-      subtitle="Weekly class schedule with the same bright dashboard palette."
+      subtitle="Your personalized weekly class schedule."
       profile={profile}
     >
       <SectionCard title="Weekly Timetable">
@@ -28,18 +66,19 @@ function StudentTimetable() {
             <thead>
               <tr>
                 <th>Day</th>
-                <th>09:00</th>
-                <th>10:00</th>
-                <th>11:00</th>
-                <th>12:00</th>
-                <th>02:00</th>
+                {effectiveHeaders.map((h, i) => (
+                  <th key={i}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {weeklyTimetable.map((row) => (
-                <tr key={row[0]}>
-                  {row.map((cell, index) => (
-                    <td key={`${row[0]}-${index}`} className={index === 0 ? "day-cell" : "slot-cell"}>
+              {effectiveTimetable.map((row, rowIdx) => (
+                <tr key={rowIdx}>
+                  {row.map((cell, cellIdx) => (
+                    <td
+                      key={`${rowIdx}-${cellIdx}`}
+                      className={cellIdx === 0 ? "day-cell" : "slot-cell"}
+                    >
                       {cell}
                     </td>
                   ))}

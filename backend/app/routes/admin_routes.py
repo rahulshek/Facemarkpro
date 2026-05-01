@@ -109,7 +109,7 @@ def _get_admin_filter_options(collections):
         for (b, s, sec) in sorted(class_set, key=lambda x: (x[0], x[1], x[2]))
     ]
 
-    faculty_options = list(collections['faculty'].find({}, {"_id": 0, "name": 1, "email": 1}))
+    faculty_options = list(collections['faculty'].find({'role': {'$ne': 'super_admin'}}, {"_id": 0, "name": 1, "email": 1}))
     faculty_options.sort(key=lambda f: (f.get('name') or '').lower())
 
     return subjects, class_options, faculty_options
@@ -584,11 +584,15 @@ def register_face():
 
         avg_encoding = np.mean(encodings, axis=0)
 
-        # Save to Cloudinary directly from memory
+        # 6. Save to Cloudinary directly from memory
+        print(f"DEBUG: Attempting to upload to Cloudinary for {branch}_{semester}...")
+        
+        # Check for existing data
+        data = get_pickle_from_cloudinary(f"{branch}_{semester}")
         if not data:
             data = {"encodings": [], "metadata": []}
-
-        # Remove existing if any (update by roll_no only, not class)
+            
+        # Update/Add student data
         filtered = [(e, m) for e, m in zip(data["encodings"], data["metadata"]) if m.get("roll_no") != roll_no]
         data["encodings"] = [e for e, m in filtered]
         data["metadata"] = [m for e, m in filtered]
@@ -597,8 +601,33 @@ def register_face():
         data["encodings"].append(avg_encoding)
         data["metadata"].append(new_metadata)
 
-        upload_pickle_to_cloudinary_from_memory(data, f"{branch}_{semester}")
-        flash(f"Successfully registered face model for {name}.", "success")
+        cloud_url = upload_pickle_to_cloudinary_from_memory(data, f"{branch}_{semester}")
+        if cloud_url:
+            print(f"DEBUG: Cloudinary upload successful: {cloud_url}")
+        else:
+            print("DEBUG: Cloudinary upload failed, continuing with local save.")
+
+        # 7. ALSO SAVE LOCALLY (Crucial for local dev)
+        split_dir = current_app.config.get('SPLIT_DIR', 'split_encodings')
+        os.makedirs(split_dir, exist_ok=True)
+        local_pickle_path = os.path.join(split_dir, f"{branch}_{semester}.pickle")
+        
+        print(f"DEBUG: Saving local pickle to {local_pickle_path}...")
+        try:
+            with open(local_pickle_path, 'wb') as f:
+                pickle.dump(data, f)
+            
+            if os.path.exists(local_pickle_path):
+                print("DEBUG: Local save VERIFIED.")
+                flash(f"Success! Face registered for {name}. You can now take attendance.", "success")
+            else:
+                print("DEBUG: Local save FAILED.")
+                flash("Error: Could not save face data locally.", "error")
+        except Exception as e:
+            print(f"DEBUG: Error saving local pickle: {e}")
+            flash(f"Warning: Face registered on cloud but local save failed: {e}", "warning")
+            
+        return redirect(url_for('admin.manage_faces'))
     except ValueError as e:
         flash(str(e), "error")
     except Exception as e:

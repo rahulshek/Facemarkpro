@@ -58,8 +58,9 @@ function AdminManageFaculty() {
     name: "",
     email: "",
     password: "123456",
-    department: "CSE",
+    department: "",
   });
+  const [branches, setBranches] = useState([]);
   const [confirmState, setConfirmState] = useState({
     open: false,
     title: "",
@@ -71,7 +72,31 @@ function AdminManageFaculty() {
 
   useEffect(() => {
     loadFaculty();
+    loadBranches();
   }, []);
+
+  async function loadBranches() {
+    try {
+      const res = await fetch(apiUrl("/api/admin/academic-setup"), {
+        method: "GET",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success && Array.isArray(data.branches)) {
+        const branchList = data.branches.map(b => ({
+          code: b.code,
+          name: b.name
+        }));
+        setBranches(branchList);
+        if (branchList.length > 0) {
+          setAddForm(prev => ({ ...prev, department: branchList[0].code }));
+        }
+      }
+    } catch (err) {
+      console.error("Branches load error:", err);
+    }
+  }
 
   async function loadFaculty() {
     setLoading(true);
@@ -475,7 +500,23 @@ function AdminManageFaculty() {
                 className="admin-form-input"
                 type="text"
                 value={addForm.name}
-                onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAddForm((prev) => {
+                    const next = { ...prev, name: val };
+                    // Only auto-suggest if email is empty or looks like a previous auto-suggestion
+                    if (!prev.email || prev.email.endsWith("@facemarkpro.com")) {
+                      const nameParts = val.trim().split(/\s+/).map(p => p.toLowerCase().replace(/[^a-z0-9]/g, ""));
+                      const suggestedName = nameParts.filter(p => p).join("");
+                      if (suggestedName) {
+                        next.email = `${suggestedName}@facemarkpro.com`;
+                      } else if (!val) {
+                        next.email = "";
+                      }
+                    }
+                    return next;
+                  });
+                }}
                 required
               />
 
@@ -497,11 +538,15 @@ function AdminManageFaculty() {
                 value={addForm.department}
                 onChange={(e) => setAddForm((prev) => ({ ...prev, department: e.target.value }))}
               >
-                <option value="CSE">CSE (Computer Science)</option>
-                <option value="IT">IT (Information Technology)</option>
-                <option value="ECE">ECE (Electronics)</option>
-                <option value="ME">ME (Mechanical)</option>
-                <option value="CE">CE (Civil)</option>
+                {branches.length === 0 ? (
+                  <option value="">No branches created</option>
+                ) : (
+                  branches.map((b) => (
+                    <option key={b.code} value={b.code}>
+                      {b.code} ({b.name})
+                    </option>
+                  ))
+                )}
               </select>
 
               <button className="primary-btn admin-form-submit" type="submit" disabled={addLoading}>

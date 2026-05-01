@@ -1,0 +1,10 @@
+day,start_time,end_time,subject,branch,semester,section,classroom,faculty_name
+Monday,09:00,10:00,Python,CSE,3,A,Lab 101,Dr. John Smith
+Monday,10:00,11:00,DBMS,CSE,5,A,Lab 102,Prof. Jane Doe
+Tuesday,09:00,10:00,Data Structures,CSE,3,A,Lab 101,Dr. John Smith
+Tuesday,10:00,11:00,Computer Networks,CSE,5,A,Lab 102,Prof. Jane Doe
+Wednesday,09:00,10:00,OS,CSE,3,A,Room 201,Smit Faculty
+Thursday,09:00,10:00,Security,CSE,3,A,Room 202,Rahul Admin
+Thursday,10:00,11:00,AI,CSE,5,A,Room 203,Umang Admin
+Friday,09:00,10:00,Cloud,CSE,3,A,Room 204,Malhar Admin
+Friday,10:00,11:00,DevOps,CSE,5,A,Room 205,Harsh Admin
